@@ -1,138 +1,89 @@
-const express = require('express');
-const cors = require('cors');
-const OpenAI = require('openai');
+// server.js (fixed)
+const express = require("express");
+const cors = require("cors");
+require("dotenv").config();
+const { Configuration, OpenAIApi } = require("openai");
  
 const app = express();
  
+// Middlewares
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json());
  
-const openai = new OpenAI({
+// OpenAI Setup
+if (!process.env.OPENAI_API_KEY) {
+  console.error("❌ Missing OPENAI_API_KEY in environment variables");
+  process.exit(1);
+}
+const configuration = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
 });
+const openai = new OpenAIApi(configuration);
  
-const SMARTTRADIE_PROMPT = `You are QuoteSenseAI, an expert construction and trade analysis assistant for Australian homeowners.
+// Health check route
+app.get("/", (req, res) => {
+  res.send("QuoteSenseAI backend is running 🚀");
+});
  
-Analyze the user's job description and optional image to provide:
+// Core AI endpoint
+app.post("/process-job", async (req, res) => {
+  try {
+    const { user_input, image_url } = req.body || {};
  
-1. **Trade Recommendation**: List the specific trades needed (e.g., ["Plumber", "Electrician"])
-2. **DIY Analysis**:
-   - feasibility: "High", "Medium", "Low", or "Not Recommended"
-   - complexity_score: 1-10 scale
-   - estimated_effort_hours: realistic time estimate
-   - estimated_bunnings_trips: number of trips to hardware store
-   - risks: array of safety/legal/warranty concerns
-   - diy_summary: brief practical advice
-3. **Price Normalisation**:
-   - estimated_price_range: Australian dollars format (e.g., "$500-$1,500")
-   - price_warning_flag: "Fair", "High", or "Very High"
-   - notes_for_user: market context and pricing guidance
+    if (!user_input) {
+      return res.status(400).json({ error: "❌ user_input is required" });
+    }
  
-Return ONLY valid JSON in this exact structure:
+    const prompt = `
+You are QuoteSenseAI, an AI assistant for Australian home repair quoting.
+ 
+Analyse this job description and return structured JSON strictly in this format:
+ 
 {
-  "trade_recommendation": ["Trade1", "Trade2"],
+  "trade_recommendation": ["trade1", "trade2"],
+  "urgency": "Critical | High | Routine",
   "diy_analysis": {
-    "feasibility": "Medium",
-    "complexity_score": 5,
-    "estimated_effort_hours": 8,
-    "estimated_bunnings_trips": 2,
-    "risks": ["Risk 1", "Risk 2"],
-    "diy_summary": "Summary here"
+    "feasibility": "Yes | Limited | No",
+    "complexity_score": X,
+    "estimated_effort_hours": X,
+    "estimated_bunnings_trips": X,
+    "risks": ["..."],
+    "diy_summary": "..."
   },
   "price_normalisation": {
-    "estimated_price_range": "$X-$Y",
-    "price_warning_flag": "Fair",
-    "notes_for_user": "Notes here"
-  }
-}`;
+    "estimated_price_range": "$X - $Y",
+    "price_warning_flag": "OK | TOO_LOW | TOO_HIGH",
+    "notes_for_user": "..."
+  },
+  "questions_to_ask_tradie": ["...", "..."]
+}
  
-app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', timestamp: new Date().toISOString() });
-});
+Only output valid JSON.
+Issue: "${user_input}"
+Image: "${image_url || 'None'}"
+    `;
  
-app.post('/process-job', async (req, res) => {
-  try {
-    const { user_input, image_url } = req.body;
+    console.log("🧠 Calling OpenAI with:", user_input);
  
-    if (!user_input || user_input.trim() === '') {
-      return res.status(400).json({
-        error: 'user_input is required',
-      });
-    }
- 
-    const messages = [
-      {
-        role: 'system',
-        content: SMARTTRADIE_PROMPT,
-      },
-    ];
- 
-    if (image_url) {
-      messages.push({
-        role: 'user',
-        content: [
-          {
-            type: 'text',
-            text: user_input,
-          },
-          {
-            type: 'image_url',
-            image_url: {
-              url: image_url,
-            },
-          },
-        ],
-      });
-    } else {
-      messages.push({
-        role: 'user',
-        content: user_input,
-      });
-    }
- 
-    const completion = await openai.chat.completions.create({
-      model: image_url ? 'gpt-4o' : 'gpt-4',
-      messages: messages,
-      temperature: 0.7,
-      response_format: { type: 'json_object' },
+    // AI call
+    const response = await openai.createChatCompletion({
+      model: "gpt-4o",
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: prompt }
+      ],
     });
  
-    const analysis = JSON.parse(completion.choices[0].message.content);
+    const aiResponse = response.data.choices[0].message.content;
+    console.log("🤖 AI Responded Successfully");
  
-    res.json({
-      success: true,
-      data: analysis,
-    });
+    return res.json(JSON.parse(aiResponse));
   } catch (error) {
-    console.error('Error processing job:', error);
- 
-    if (error.code === 'invalid_api_key') {
-      return res.status(500).json({
-        error: 'OpenAI API key is invalid or missing',
-      });
-    }
- 
-    if (error.status === 429) {
-      return res.status(429).json({
-        error: 'Rate limit exceeded. Please try again later.',
-      });
-    }
- 
-    res.status(500).json({
-      error: 'Failed to process job analysis',
-      message: error.message,
-    });
+    console.error("🔥 Error in /process-job:", error.message);
+    return res.status(500).json({ error: "AI processing error", details: error.message });
   }
 });
  
-app.use((req, res) => {
-  res.status(404).json({ error: 'Endpoint not found' });
-});
- 
+// Start Server
 const PORT = process.env.PORT || 3000;
- 
-app.listen(PORT, () => {
-  console.log(`QuoteSenseAI API running on port ${PORT}`);
-});
- 
-module.exports = app;
+app.listen(PORT, () => console.log(`🚀 QuoteSenseAI backend running on port ${PORT}`));
