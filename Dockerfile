@@ -1,20 +1,24 @@
-# Use official Node.js runtime
+# Use Node 18 LTS
 FROM node:18-alpine
  
-# Set working directory
+# Create app directory
 WORKDIR /app
  
-# Copy package.json
-COPY package.json ./
+# Copy package files
+COPY package*.json ./
  
-# Install dependencies
+# Install production dependencies
 RUN npm install --production
  
-# Copy application files
+# Copy entire project
 COPY . .
  
-# Expose port
-EXPOSE 3000
+# Set environment variables
+ENV PORT=8080
+ENV NODE_ENV=production
  
-# Start the application
-CMD ["node", "server.js"]
+# Expose the port Railway will use
+EXPOSE 8080
+ 
+# Start the server
+CMD ["npm", "start"]
