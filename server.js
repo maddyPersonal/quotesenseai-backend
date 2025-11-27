@@ -43,4 +43,7 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`🟢 QuoteSenseAI backend is listening on http://0.0.0.0:${PORT}`);
 });
+setInterval(() => {
+  console.log("💚 QuoteSenseAI still running...");
+}, 30000); // Log every 30 sec to keep event loop active
  
